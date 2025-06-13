@@ -1,0 +1,144 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <windows.h> 
+
+using namespace std;
+
+// 设置控制台代码页为UTF-8
+void setConsoleToUTF8() {
+    SetConsoleOutputCP(CP_UTF8); // 设置控制台输出为UTF-8
+    SetConsoleCP(CP_UTF8);       // 设置控制台输入为UTF-8
+}
+
+// 结构体用于存储查询结果
+struct SearchResult {
+    int index;
+    string name;
+    int page;
+    int chapter;
+    string bookName;
+    vector<string> context; // 存储上下文的多行内容
+};
+
+// 读取文件内容并返回字符串
+string readFile(const string& filename) {
+    ifstream file(filename, ios::binary); // 以二进制模式打开文件，确保UTF-8编码正确读取
+    if (!file) {
+        cerr << "Unable to open file: " << filename << endl;
+        exit(1);
+    }
+    stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+// 搜索人名或地名，并返回查询结果
+vector<SearchResult> searchInBooks(const vector<string>& books, const string& name) {
+    vector<SearchResult> results;
+    int bookIndex = 1;
+
+    for (const auto& book : books) {
+        string bookName = "Harry_Potter_and_the_Book_" + to_string(bookIndex);
+        int chapter = 1;
+        int page = 1;
+        int index = 1;
+
+        istringstream stream(book);
+        string line;
+        vector<string> lines; // 用于存储当前书的行内容
+        while (getline(stream, line)) {
+            lines.push_back(line);
+        }
+
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (lines[i].find(name) != string::npos) {
+                SearchResult result;
+                result.index = results.size() + 1;
+                result.name = name;
+                result.page = page;
+                result.chapter = chapter;
+                result.bookName = bookName;
+
+                // 获取上下文的前后几行
+                int contextLines = 3; // 前后各显示3行
+                for (int j = max(0, static_cast<int>(i) - contextLines); j < min(static_cast<int>(i) + contextLines + 1, static_cast<int>(lines.size())); ++j) {
+                    result.context.push_back(lines[j]);
+                }
+
+                results.push_back(result);
+            }
+            if (line.find("Chapter") != string::npos) {
+                chapter++;
+            }
+            page++;
+        }
+        bookIndex++;
+    }
+
+    return results;
+}
+
+// 显示查询结果
+void displayResults(const vector<SearchResult>& results) {
+    cout << "Index\tName/Location\tPage\tChapter\tBook Name" << endl;
+    for (const auto& result : results) {
+        cout << result.index << "\t" << result.name << "\t" << result.page << "\t" << result.chapter << "\t" << result.bookName << endl;
+    }
+}
+
+// 显示指定结果的上下文
+void displayContext(const vector<SearchResult>& results, int choice) {
+    if (choice >= 1 && choice <= results.size()) {
+        cout << "Context: " << endl;
+        for (const auto& line : results[choice - 1].context) {
+            cout << line << endl;
+        }
+    }
+    else {
+        cout << "Invalid selection number!" << endl;
+    }
+}
+
+int main() {
+    setConsoleToUTF8(); // 设置控制台为UTF-8
+
+    vector<string> bookFiles = {
+        "Book_1.txt",
+        "Book_2.txt",
+        "Book_3.txt",
+        "Book_4.txt",
+        "Book_5.txt",
+        "Book_6.txt",
+        "Book_7.txt",
+        "Book_8.txt"
+    };
+
+    vector<string> books;
+    for (const auto& file : bookFiles) {
+        books.push_back(readFile(file));
+    }
+
+    cout << "Enter the name or location to search for: ";
+    string name;
+    getline(cin, name);
+
+    vector<SearchResult> results = searchInBooks(books, name);
+
+    if (results.empty()) {
+        cout << "No matching names or locations found!" << endl;
+    }
+    else {
+        displayResults(results);
+
+        cout << "Enter the index number to view the context: ";
+        int choice;
+        cin >> choice;
+
+        displayContext(results, choice);
+    }
+
+    return 0;
+}
