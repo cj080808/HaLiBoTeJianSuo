@@ -1,0 +1,340 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <windows.h>  
+#include <regex>     
+#include <unordered_map>
+#include <graphics.h> 
+#include <conio.h>
+
+using namespace std;
+
+// 宽字符转窄字符串（UTF-8 编码）
+string wstring_to_string(const wstring& wstr) {
+    int len = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wstr.c_str(),
+        -1,
+        nullptr,
+        0,
+        nullptr, nullptr
+    );
+    char* buf = new char[len];
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, buf, len, nullptr, nullptr);
+    string res(buf);
+    delete[] buf;
+    return res;
+}
+
+// 窄字符转宽字符串（UTF-8 编码）
+wstring toWideString(const string& str) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    wchar_t* buf = new wchar_t[len];
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, buf, len);
+    wstring res(buf);
+    delete[] buf;
+    return res;
+}
+
+// 设置控制台输出为UTF-8
+void setConsoleToUTF8() {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+}
+
+// 结构体用于存储查询结果
+struct SearchResult {
+    int index;        // 查询结果的索引
+    string name;      // 查询的名称或位置
+    int page;         // 所在页码
+    int chapter;      // 所在章节
+    string bookName;  // 所属书籍名称
+    vector<string> context; // 上下文内容
+};
+
+// 读取文件内容并返回字符串
+string readFile(const string& filename) {
+    ifstream file(filename, ios::binary);
+    if (!file) {
+        cerr << "Error: Unable to open file - " << filename << endl;
+        exit(1);
+    }
+    stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+// 英文数字到整数的映射表
+const unordered_map<string, int> englishNumberMap = {
+    {"zero", 0}, {"one", 1}, {"two", 2}, {"three", 3}, {"four", 4},
+    {"five", 5}, {"six", 6}, {"seven", 7}, {"eight", 8}, {"nine", 9},
+    {"ten", 10}, {"eleven", 11}, {"twelve", 12}, {"thirteen", 13},
+    {"fourteen", 14}, {"fifteen", 15}, {"sixteen", 16}, {"seventeen", 17},
+    {"eighteen", 18}, {"nineteen", 19}, {"twenty", 20}, {"twenty-one", 21},
+    {"twenty-two", 22}, {"twenty-three", 23}, {"twenty-four", 24}, {"twenty-five", 25},
+    {"twenty-six", 26}, {"twenty-seven", 27}, {"twenty-eight", 28}, {"twenty-nine", 29},
+    {"thirty", 30}, {"thirty-one", 31}, {"thirty-two", 32}, {"thirty-three", 33},
+    {"thirty-four", 34}, {"thirty-five", 35}, {"thirty-six", 36}, {"thirty-seven", 37},
+    {"thirty-eight", 38}, {"thirty-nine", 39}, {"forty", 40}, {"forty-one", 41},
+    {"forty-two", 42}, {"forty-three", 43}, {"forty-four", 44}, {"forty-five", 45},
+    {"forty-six", 46}, {"forty-seven", 47}, {"forty-eight", 48}, {"forty-nine", 49},
+    {"fifty", 50}, {"fifty-one", 51}, {"fifty-two", 52}, {"fifty-three", 53},
+    {"fifty-four", 54}, {"fifty-five", 55}, {"fifty-six", 56}, {"fifty-seven", 57},
+    {"fifty-eight", 58}, {"fifty-nine", 59}, {"sixty", 60}, {"sixty-one", 61},
+    {"sixty-two", 62}, {"sixty-three", 63}, {"sixty-four", 64}, {"sixty-five", 65},
+    {"sixty-six", 66}, {"sixty-seven", 67}, {"sixty-eight", 68}, {"sixty-nine", 69},
+    {"seventy", 70}, {"seventy-one", 71}, {"seventy-two", 72}, {"seventy-three", 73},
+    {"seventy-four", 74}, {"seventy-five", 75}, {"seventy-six", 76}, {"seventy-seven", 77},
+    {"seventy-eight", 78}, {"seventy-nine", 79}, {"eighty", 80}, {"eighty-one", 81},
+    {"eighty-two", 82}, {"eighty-three", 83}, {"eighty-four", 84}, {"eighty-five", 85},
+    {"eighty-six", 86}, {"eighty-seven", 87}, {"eighty-eight", 88}, {"eighty-nine", 89},
+    {"ninety", 90}, {"ninety-one", 91}, {"ninety-two", 92}, {"ninety-three", 93},
+    {"ninety-four", 94}, {"ninety-five", 95}, {"ninety-six", 96}, {"ninety-seven", 97},
+    {"ninety-eight", 98}, {"ninety-nine", 99}, {"one hundred", 100}
+};
+
+// 检测是否为章节标题行
+bool isChapterTitle(const string& line) {
+    static const regex chapterRegex(R"(Chapter\s+\w+(\s+\w+)*$)");
+    return regex_search(line, chapterRegex);
+}
+
+// 检测是否为页码行
+bool isPageLine(const string& line) {
+    static const regex pageRegex(R"(^\s*\d+\s*$)");
+    return regex_match(line, pageRegex);
+}
+
+// 在书籍中搜索指定名称并返回查询结果
+vector<SearchResult> searchInBooks(const vector<string>& books, const string& name) {
+    vector<SearchResult> results;
+    int bookIndex = 1;
+
+    for (const auto& book : books) {
+        string bookName = "Harry_Potter_and_the_Book_" + to_string(bookIndex);
+        int chapter = 1;
+        int page = 1;
+        int lineCount = 0;
+
+        istringstream stream(book);
+        string line;
+        vector<string> lines;
+        while (getline(stream, line)) {
+            lines.push_back(line);
+        }
+
+        for (size_t i = 0; i < lines.size(); ++i) {
+            // 如果是页码行，更新页码和行号
+            if (isPageLine(lines[i])) {
+                page = stoi(lines[i]);
+                lineCount = 0;
+                continue;
+            }
+
+            lineCount++;
+
+            // 如果是章节标题行，更新章节号
+            if (isChapterTitle(lines[i])) {
+                static const regex chapterRegex(R"(Chapter\s+(\w+(\s+\w+)*))");
+                smatch match;
+                if (regex_search(lines[i], match, chapterRegex) && match.size() > 1) {
+                    string chapterStr = match[1].str();
+                    auto it = englishNumberMap.find(chapterStr);
+                    if (it != englishNumberMap.end()) {
+                        chapter = it->second;
+                    }
+                }
+                continue;
+            }
+
+            // 如果当前行包含要搜索的名称
+            if (lines[i].find(name) != string::npos) {
+                SearchResult result;
+                result.index = results.size() + 1;
+                result.name = name;
+                result.page = page;
+                result.chapter = chapter;
+                result.bookName = bookName;
+
+                // 获取查询到的前后上下文
+                const int contextLines = 3;
+                for (int j = max(0, static_cast<int>(i) - contextLines); j < min(static_cast<int>(i) + contextLines + 1, static_cast<int>(lines.size())); ++j) {
+                    result.context.push_back(lines[j]);
+                }
+
+                results.push_back(result);
+            }
+        }
+
+        bookIndex++;
+    }
+
+    return results;
+}
+
+// 显示查询结果
+void displayResults(const vector<SearchResult>& results, int offset) {
+    cleardevice();
+    settextcolor(LIGHTGRAY); // 设置标题颜色
+    outtextxy(10, 10, L"Index | Name/Location          | Page | Chapter | Book Name");
+    outtextxy(10, 25, L"--------------------------------------------------------------------------");
+
+    settextcolor(WHITE); // 设置内容颜色
+    int y = 40;
+    int maxResultsPerPage = 20;
+    int startPos = offset;
+    int endPos = min(startPos + maxResultsPerPage, static_cast<int>(results.size()));
+
+    for (int i = startPos; i < endPos; ++i) {
+        const auto& result = results[i];
+        wstring info = to_wstring(result.index) + L"        | " +
+            toWideString(result.name) + L"              | " +
+            to_wstring(result.page + 1) + L"    | " +
+            to_wstring(result.chapter) + L"     | " +
+            toWideString(result.bookName);
+        outtextxy(10, y, info.c_str());
+        y += 30;
+    }
+
+    settextcolor(LIGHTGRAY);
+    outtextxy(10, y + 10, L"--------------------------------------------------------------------------");
+    wstring status = L"Results " + to_wstring(startPos + 1) + L"-" + to_wstring(endPos) + L" of " + to_wstring(results.size()) +
+        L" (Use mouse wheel or arrow keys to scroll)";
+    outtextxy(10, y + 30, status.c_str());
+}
+
+// 显示指定结果的上下文
+void displayContext(const vector<SearchResult>& results, int choice, int offset) {
+    if (choice >= 1 && choice <= static_cast<int>(results.size())) {
+        cleardevice();
+        settextcolor(WHITE);
+        outtextxy(10, 10, L"Context: ");
+
+        const auto& result = results[choice - 1];
+        wstring info = L"Index: " + to_wstring(result.index) +
+            L"   Name: " + toWideString(result.name) +
+            L"   Page: " + to_wstring(result.page + 1) +
+            L"   Chapter: " + to_wstring(result.chapter) +
+            L"   Book: " + toWideString(result.bookName);
+        outtextxy(10, 40, info.c_str());
+
+        settextcolor(LIGHTGRAY);
+        outtextxy(10, 70, L"--------------------------------------------------------------------------------");
+
+        settextcolor(WHITE);
+        int y = 90;
+        int linesDisplayed = 0;
+        for (size_t i = offset; i < result.context.size() && linesDisplayed < 20; ++i) {
+            wstring lineW = toWideString(result.context[i]);
+            outtextxy(10, y, lineW.c_str());
+            y += 25;
+            linesDisplayed++;
+        }
+
+        settextcolor(LIGHTGRAY);
+        outtextxy(10, y + 10, L"--------------------------------------------------------------------------------");
+        wstring status = L"Context lines " + to_wstring(offset + 1) + L"-" + to_wstring(min(offset + 20, result.context.size())) + L" of " + to_wstring(result.context.size());
+        outtextxy(10, y + 30, status.c_str());
+    }
+    else {
+        cleardevice();
+        settextcolor(RED);
+        outtextxy(10, 10, L"Invalid selection number!");
+    }
+}
+
+// 主函数
+int main() {
+    setConsoleToUTF8(); // 设置控制台为UTF-8
+
+    // 定义书籍文件列表
+    vector<string> bookFiles = {
+        "Book_1.txt",
+        "Book_2.txt",
+        "Book_3.txt",
+        "Book_4.txt",
+        "Book_5.txt",
+        "Book_6.txt",
+        "Book_7.txt",
+        "Book_8.txt"
+    };
+
+    vector<string> books;
+    for (const auto& file : bookFiles) {
+        books.push_back(readFile(file));
+    }
+
+    initgraph(800, 600); // 初始化图形窗口
+    setbkcolor(BLACK);   // 设置背景色为黑色
+    cleardevice();       // 清空窗口
+
+    wchar_t input[100] = { 0 };
+    settextcolor(WHITE);
+    outtextxy(10, 10, L"Enter the name or location to search for: ");
+    InputBox(input, 100, L"Input", L"Enter the name or location:", L"Harry Potter Search", 10, 30, false);
+
+    string name = wstring_to_string(input);
+    vector<SearchResult> results = searchInBooks(books, name);
+
+    if (results.empty()) {
+        cleardevice();
+        settextcolor(RED);
+        outtextxy(10, 10, L"No matching names or locations found!");
+    }
+    else {
+        int resultOffset = 0; // 用于结果滚动的偏移量
+        displayResults(results, resultOffset);
+
+        int choice = -1;
+        while (true) {
+            if (_kbhit()) {
+                char key = _getch();
+                if (key == 13) { // Enter 键
+                    wchar_t choiceStr[10] = { 0 };
+                    outtextxy(10, 500, L"Enter the index number to view the context: ");
+                    InputBox(choiceStr, 10, L"Input Index", L"Enter the index number:", L"Harry Potter Search", 10, 520, false);
+                    choice = _wtoi(choiceStr);
+                    break;
+                }
+                else if (key == 72) { // 上箭头
+                    resultOffset = max(0, resultOffset - 5);
+                    displayResults(results, resultOffset);
+                }
+                else if (key == 80) { // 下箭头
+                    resultOffset = min(resultOffset + 5, static_cast<int>(results.size()) - 1);
+                    displayResults(results, resultOffset);
+                }
+            }
+        }
+
+        if (choice != -1) {
+            int contextOffset = 0; // 用于上下文滚动的偏移量
+            while (true) {
+                displayContext(results, choice, contextOffset);
+
+                if (_kbhit()) {
+                    char key = _getch();
+                    if (key == 27) { // ESC 键退出
+                        break;
+                    }
+                    else if (key == 72) { // 上箭头
+                        contextOffset = max(0, contextOffset - 10);
+                    }
+                    else if (key == 80) { // 下箭头
+                        contextOffset = min(contextOffset + 10, static_cast<int>(results[choice - 1].context.size()) - 1);
+                    }
+                    else if (key == 13) { // Enter 键返回结果列表
+                        displayResults(results, resultOffset);
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+
+    closegraph(); // 关闭图形窗口
+    return 0;
+}
